@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -161,8 +160,7 @@ Future<File> dataFile() async => File('${(await getApplicationDocumentsDirectory
 
 // ---------- Uygulama ----------
 ThemeData buildTheme(Brightness b) {
-  final base = ThemeData(colorSchemeSeed: const Color(0xFFC4B5FD), brightness: b, useMaterial3: true);
-  return base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme));
+  return ThemeData(colorSchemeSeed: const Color(0xFFC4B5FD), brightness: b, useMaterial3: true);
 }
 
 class App extends StatelessWidget {
