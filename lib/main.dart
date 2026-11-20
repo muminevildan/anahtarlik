@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -26,20 +28,53 @@ String ds(DateTime t) => '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.da
 double num2(dynamic v) => (v as num).toDouble();
 double? parseNum(String s) => double.tryParse(s.trim().replaceAll(',', '.'));
 
+// ---------- Renkler (pastel) ----------
 const palette = [
-  Color(0xFF2563EB),
-  Color(0xFFDC2626),
-  Color(0xFF059669),
-  Color(0xFFD97706),
-  Color(0xFF7C3AED),
-  Color(0xFFDB2777),
-  Color(0xFF0891B2),
-  Color(0xFFEA580C),
-  Color(0xFF4D7C0F),
-  Color(0xFF475569),
+  Color(0xFF93C5FD),
+  Color(0xFFFCA5A5),
+  Color(0xFF6EE7B7),
+  Color(0xFFFCD34D),
+  Color(0xFFC4B5FD),
+  Color(0xFFF9A8D4),
+  Color(0xFF67E8F9),
+  Color(0xFFFDBA74),
+  Color(0xFFBEF264),
+  Color(0xFFCBD5E1),
 ];
 Color colorAt(int i) => palette[i % palette.length];
-const tabColors = [Color(0xFF7C3AED), Color(0xFFEA580C), Color(0xFF059669), Color(0xFFDC2626), Color(0xFF2563EB), Color(0xFF475569)];
+
+// Pastel zeminlerin üstündeki yazı/ikon rengi
+const ink = Color(0xFF1E1B2E);
+
+// Sekme renkleri: Stok, Alış, Satış, Gider, Rapor, Yedek (hepsi paletten)
+const tabColors = [
+  Color(0xFFC4B5FD), // lavanta
+  Color(0xFFFDBA74), // şeftali
+  Color(0xFF6EE7B7), // nane
+  Color(0xFFFCA5A5), // mercan
+  Color(0xFF93C5FD), // gökyüzü
+  Color(0xFFCBD5E1), // gri-mavi
+];
+const tabIcons = [
+  Icons.inventory_2_outlined,
+  Icons.add_shopping_cart,
+  Icons.sell_outlined,
+  Icons.receipt_long_outlined,
+  Icons.bar_chart,
+  Icons.backup_outlined,
+];
+
+const pGreen = Color(0xFF6EE7B7);
+const pRed = Color(0xFFFCA5A5);
+const pBlue = Color(0xFF93C5FD);
+const pOrange = Color(0xFFFDBA74);
+const pPurple = Color(0xFFC4B5FD);
+const pYellow = Color(0xFFFCD34D);
+
+// Pastel rengin açık temada okunur koyu tonu, koyu temada kendisi
+Color tone(BuildContext c, Color x) => Theme.of(c).brightness == Brightness.dark
+    ? x
+    : HSLColor.fromColor(x).withLightness(0.30).withSaturation(0.55).toColor();
 
 // ---------- Veri ----------
 class Data {
@@ -125,14 +160,19 @@ class Data {
 Future<File> dataFile() async => File('${(await getApplicationDocumentsDirectory()).path}/anahtarlik.json');
 
 // ---------- Uygulama ----------
+ThemeData buildTheme(Brightness b) {
+  final base = ThemeData(colorSchemeSeed: const Color(0xFFC4B5FD), brightness: b, useMaterial3: true);
+  return base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme));
+}
+
 class App extends StatelessWidget {
   const App({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'KeyFlow',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(colorSchemeSeed: const Color(0xFF7C3AED), useMaterial3: true),
-        darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF7C3AED), brightness: Brightness.dark, useMaterial3: true),
+        theme: buildTheme(Brightness.light),
+        darkTheme: buildTheme(Brightness.dark),
         home: const Home(),
       );
 }
@@ -245,7 +285,7 @@ class _HomeState extends State<Home> {
                     child: CircleAvatar(
                       radius: 16,
                       backgroundColor: palette[i],
-                      child: color == i ? const Icon(Icons.check, size: 18, color: Colors.white) : null,
+                      child: color == i ? const Icon(Icons.check, size: 18, color: ink) : null,
                     ),
                   ),
               ]),
@@ -372,7 +412,7 @@ class _HomeState extends State<Home> {
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            leading: CircleAvatar(backgroundColor: d.colorOf(id), child: const Icon(Icons.vpn_key, color: Colors.white, size: 20)),
+            leading: CircleAvatar(backgroundColor: d.colorOf(id), child: const Icon(Icons.vpn_key, color: ink, size: 20)),
             title: Text(p['name'] as String, style: Theme.of(c).textTheme.titleLarge),
             subtitle: Text('Stok ${d.stock(id)} · ort. alış ${tl(d.avgCost(id))}'),
           ),
@@ -565,31 +605,38 @@ class _HomeState extends State<Home> {
     ));
   }
 
-  Widget statCard(IconData icon, Color c, String label, String value) => Card(
-        color: c.withAlpha(30),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(icon, size: 18, color: c),
-              const SizedBox(width: 6),
-              Flexible(child: Text(label)),
-            ]),
-            const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            ),
+  Widget statCard(IconData icon, Color c, String label, String value) {
+    final t = tone(context, c);
+    return Card(
+      color: c.withAlpha(70),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(icon, size: 18, color: t),
+            const SizedBox(width: 6),
+            Flexible(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
           ]),
-        ),
-      );
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: t)),
+          ),
+        ]),
+      ),
+    );
+  }
 
   Widget infoRow(IconData icon, Color c, String label, String value) => Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: ListTile(
-          leading: CircleAvatar(backgroundColor: c.withAlpha(40), child: Icon(icon, color: c)),
-          title: Text(label),
-          trailing: Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+          leading: CircleAvatar(backgroundColor: c.withAlpha(90), child: Icon(icon, color: tone(context, c))),
+          title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          trailing: Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
         ),
       );
 
@@ -601,18 +648,19 @@ class _HomeState extends State<Home> {
     final stColor = st <= 0 ? cs.error : (st <= 3 ? Colors.orange.shade800 : null);
     final avg = 'Ort. alış ${tl(d.avgCost(id))}';
     return Card(
-      color: pc.withAlpha(28),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: pc, width: 1.5)),
+      color: pc.withAlpha(45),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: pc, width: 1.5)),
       child: Column(children: [
         ListTile(
           onTap: () => productSheet(p),
-          leading: CircleAvatar(backgroundColor: pc, child: const Icon(Icons.vpn_key, color: Colors.white, size: 20)),
-          title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+          leading: CircleAvatar(backgroundColor: pc, child: const Icon(Icons.vpn_key, color: ink, size: 20)),
+          title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
           subtitle: Text(st <= 0 ? 'Stok bitti · $avg' : (st <= 3 ? 'Azaldı · $avg' : avg)),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             if (st <= 3) Icon(Icons.warning_amber_rounded, color: stColor),
             const SizedBox(width: 6),
-            Text('$st', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: stColor)),
+            Text('$st', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: stColor)),
           ]),
         ),
         Padding(
@@ -620,7 +668,7 @@ class _HomeState extends State<Home> {
           child: Row(children: [
             Expanded(
               child: FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: pc, foregroundColor: Colors.white),
+                style: FilledButton.styleFrom(backgroundColor: pc, foregroundColor: ink),
                 onPressed: () => quickSale(id),
                 icon: const Icon(Icons.sell_outlined, size: 18),
                 label: const Text('1 sattım'),
@@ -629,7 +677,7 @@ class _HomeState extends State<Home> {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(foregroundColor: pc, side: BorderSide(color: pc)),
+                style: OutlinedButton.styleFrom(foregroundColor: tone(context, pc), side: BorderSide(color: pc)),
                 onPressed: () => tradeSheet(false, pid: id),
                 icon: const Icon(Icons.add_shopping_cart, size: 18),
                 label: const Text('Alış ekle'),
@@ -656,9 +704,9 @@ class _HomeState extends State<Home> {
       if (d.hasData && old)
         Card(child: ListTile(title: const Text('Yedek almayı unutma'), subtitle: const Text('Dokun ve yedekle'), onTap: () => setState(() => tab = 5))),
       Row(children: [
-        Expanded(child: statCard(Icons.inventory_2, const Color(0xFF7C3AED), 'Eldeki toplam', '$pieces adet')),
+        Expanded(child: statCard(Icons.inventory_2, pPurple, 'Eldeki toplam', '$pieces adet')),
         const SizedBox(width: 8),
-        Expanded(child: statCard(Icons.savings, const Color(0xFFD97706), 'Maliyet değeri', tl(total))),
+        Expanded(child: statCard(Icons.savings, pYellow, 'Maliyet değeri', tl(total))),
       ]),
       if (d.products.isEmpty)
         const Card(
@@ -689,7 +737,7 @@ class _HomeState extends State<Home> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 72, color: color.withAlpha(150)),
+            Icon(icon, size: 72, color: color),
             const SizedBox(height: 12),
             Text(m, textAlign: TextAlign.center),
           ]),
@@ -698,16 +746,24 @@ class _HomeState extends State<Home> {
 
   Widget tradePage(bool sale) {
     final list = sorted(sale ? d.sales : d.purchases);
-    if (list.isEmpty) return emptyMsg(sale ? 'Henüz satış yok.\nAşağıdan "Satış ekle"ye bas.' : 'Henüz alış yok.\nAşağıdan "Alış ekle"ye bas.', sale ? Icons.sell_outlined : Icons.add_shopping_cart, sale ? const Color(0xFF059669) : const Color(0xFFEA580C));
+    if (list.isEmpty) {
+      return emptyMsg(
+        sale ? 'Henüz satış yok.\nAşağıdan "Satış ekle"ye bas.' : 'Henüz alış yok.\nAşağıdan "Alış ekle"ye bas.',
+        sale ? Icons.sell_outlined : Icons.add_shopping_cart,
+        sale ? pGreen : pOrange,
+      );
+    }
     return ListView(padding: pad, children: [
       const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
       for (final e in list)
         Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             onTap: () => tradeSheet(sale, edit: e),
-            leading: CircleAvatar(backgroundColor: d.colorOf(e['pid'] as int), child: Icon(sale ? Icons.sell_outlined : Icons.add_shopping_cart, color: Colors.white, size: 20)),
+            leading: CircleAvatar(backgroundColor: d.colorOf(e['pid'] as int), child: Icon(sale ? Icons.sell_outlined : Icons.add_shopping_cart, color: ink, size: 20)),
             isThreeLine: ((e['note'] as String?) ?? '').isNotEmpty,
-            title: Text(d.name(e['pid'] as int)),
+            title: Text(d.name(e['pid'] as int), style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text(tradeSub(e)),
             trailing: IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -722,15 +778,17 @@ class _HomeState extends State<Home> {
 
   Widget giderPage() {
     final list = sorted(d.expenses);
-    if (list.isEmpty) return emptyMsg('Henüz gider yok.\nKargo, filament, ambalaj gibi masrafları buraya yaz.', Icons.receipt_long, const Color(0xFFDC2626));
+    if (list.isEmpty) return emptyMsg('Henüz gider yok.\nKargo, filament, ambalaj gibi masrafları buraya yaz.', Icons.receipt_long, pRed);
     return ListView(padding: pad, children: [
       const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
       for (final e in list)
         Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             onTap: () => expenseSheet(edit: e),
-            leading: const CircleAvatar(backgroundColor: Color(0xFFDC2626), child: Icon(Icons.receipt_long, color: Colors.white, size: 20)),
-            title: Text(e['note'] as String),
+            leading: const CircleAvatar(backgroundColor: pRed, child: Icon(Icons.receipt_long, color: ink, size: 20)),
+            title: Text(e['note'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text('${e['date']} · ${tl(num2(e['amount']))}'),
             trailing: IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -770,7 +828,7 @@ class _HomeState extends State<Home> {
       if ((e['date'] as String).startsWith(key)) gid += num2(e['amount']);
     }
     final net = rev - cogs - gid;
-    final good = Colors.green.shade600, bad = Theme.of(context).colorScheme.error;
+    final good = tone(context, pGreen), bad = tone(context, pRed);
     final entries = rows.entries.toList()..sort((a, b) => b.value[2].compareTo(a.value[2]));
     return ListView(padding: pad, children: [
       SegmentedButton<int>(
@@ -784,36 +842,40 @@ class _HomeState extends State<Home> {
       ),
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         period == 2 ? const SizedBox(width: 48, height: 48) : IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => shiftPeriod(-1)),
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
         period == 2 ? const SizedBox(width: 48, height: 48) : IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => shiftPeriod(1)),
       ]),
       Card(
-        color: net >= 0 ? good.withAlpha(35) : Theme.of(context).colorScheme.errorContainer,
+        color: (net >= 0 ? pGreen : pRed).withAlpha(80),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Icon(net >= 0 ? Icons.trending_up : Icons.trending_down, color: net >= 0 ? good : bad),
               const SizedBox(width: 8),
-              Text(net >= 0 ? 'Net kâr' : 'Net zarar'),
+              Text(net >= 0 ? 'Net kâr' : 'Net zarar', style: const TextStyle(fontWeight: FontWeight.w600)),
             ]),
-            Text(tl(net), style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: net >= 0 ? good : bad)),
+            Text(tl(net), style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: net >= 0 ? good : bad)),
           ]),
         ),
       ),
-      infoRow(Icons.payments, const Color(0xFF2563EB), 'Satış geliri', tl(rev)),
-      infoRow(Icons.sell, const Color(0xFFEA580C), 'Satılanın maliyeti', tl(cogs)),
-      infoRow(Icons.receipt_long, const Color(0xFFDC2626), 'Diğer giderler', tl(gid)),
-      infoRow(Icons.inventory_2, const Color(0xFF7C3AED), 'Yaptırana ödenen (alış)', tl(spent)),
-      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('Çeşit bazında (brüt kâr)')),
+      infoRow(Icons.payments, pBlue, 'Satış geliri', tl(rev)),
+      infoRow(Icons.sell, pOrange, 'Satılanın maliyeti', tl(cogs)),
+      infoRow(Icons.receipt_long, pRed, 'Diğer giderler', tl(gid)),
+      infoRow(Icons.inventory_2, pPurple, 'Yaptırana ödenen (alış)', tl(spent)),
+      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('Çeşit bazında (brüt kâr)', style: TextStyle(fontWeight: FontWeight.w700))),
       if (entries.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Bu dönemde satış yok.')),
       for (final en in entries)
         Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
-            leading: CircleAvatar(backgroundColor: d.colorOf(en.key), child: const Icon(Icons.vpn_key, color: Colors.white, size: 18)),
-            title: Text(d.name(en.key)),
+            leading: CircleAvatar(backgroundColor: d.colorOf(en.key), child: const Icon(Icons.vpn_key, color: ink, size: 18)),
+            title: Text(d.name(en.key), style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text('${en.value[0].toInt()} adet · gelir ${tl(en.value[1])}'),
-            trailing: Text(tl(en.value[2]), style: TextStyle(fontWeight: FontWeight.bold, color: en.value[2] >= 0 ? good : bad)),
+            trailing: Text(tl(en.value[2]), style: TextStyle(fontWeight: FontWeight.w800, color: en.value[2] >= 0 ? good : bad)),
           ),
         ),
       const Padding(
@@ -851,24 +913,33 @@ class _HomeState extends State<Home> {
 
   Widget yedekPage() => ListView(padding: const EdgeInsets.all(12), children: [
         Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Yedek al', style: Theme.of(context).textTheme.titleMedium),
+              Text('Yedek al', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               const Text('Telefon değiştirirsen ya da uygulamayı silersen verilerini buradan geri yüklersin. Dosyayı WhatsApp’tan kendine, Drive’a ya da e-postaya gönder.'),
               const SizedBox(height: 6),
               Text('Son yedek: ${d.lastBackup ?? 'hiç alınmadı'}'),
               const SizedBox(height: 10),
-              FilledButton.icon(onPressed: backup, icon: const Icon(Icons.share), label: const Text('Yedeği paylaş (WhatsApp, Drive...)')),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: tabColors[5], foregroundColor: ink),
+                onPressed: backup,
+                icon: const Icon(Icons.share),
+                label: const Text('Yedeği paylaş (WhatsApp, Drive...)'),
+              ),
             ]),
           ),
         ),
         Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Yedekten geri yükle', style: Theme.of(context).textTheme.titleMedium),
+              Text('Yedekten geri yükle', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               const Text('Yeni telefonda uygulamayı aç, yedek dosyasını seç.'),
               const SizedBox(height: 10),
@@ -879,17 +950,74 @@ class _HomeState extends State<Home> {
       ]);
 
   Widget? fab() {
+    Widget f(VoidCallback onTap, String label) => FloatingActionButton.extended(
+          backgroundColor: tabColors[tab],
+          foregroundColor: ink,
+          elevation: 2,
+          onPressed: onTap,
+          icon: const Icon(Icons.add),
+          label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        );
     switch (tab) {
       case 0:
-        return FloatingActionButton.extended(backgroundColor: tabColors[tab], foregroundColor: Colors.white, onPressed: addProduct, icon: const Icon(Icons.add), label: const Text('Çeşit ekle'));
+        return f(addProduct, 'Çeşit ekle');
       case 1:
-        return FloatingActionButton.extended(backgroundColor: tabColors[tab], foregroundColor: Colors.white, onPressed: () => tradeSheet(false), icon: const Icon(Icons.add), label: const Text('Alış ekle'));
+        return f(() => tradeSheet(false), 'Alış ekle');
       case 2:
-        return FloatingActionButton.extended(backgroundColor: tabColors[tab], foregroundColor: Colors.white, onPressed: () => tradeSheet(true), icon: const Icon(Icons.add), label: const Text('Satış ekle'));
+        return f(() => tradeSheet(true), 'Satış ekle');
       case 3:
-        return FloatingActionButton.extended(backgroundColor: tabColors[tab], foregroundColor: Colors.white, onPressed: expenseSheet, icon: const Icon(Icons.add), label: const Text('Gider ekle'));
+        return f(expenseSheet, 'Gider ekle');
     }
     return null;
+  }
+
+  // ----- Üst başlık -----
+  Widget header(String title) {
+    final c = tabColors[tab];
+    final now = DateTime.now();
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [c, Color.lerp(c, Colors.white, 0.5)!],
+        ),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
+        boxShadow: [BoxShadow(color: c.withAlpha(90), blurRadius: 16, offset: const Offset(0, 6))],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+          child: Row(children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(color: Colors.white.withAlpha(150), borderRadius: BorderRadius.circular(18)),
+              child: Icon(tabIcons[tab], color: ink, size: 28),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(title, style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: ink, height: 1.1)),
+                const SizedBox(height: 2),
+                Text(
+                  '${now.day} ${aylar[now.month - 1]} ${now.year}',
+                  style: tt.bodyMedium?.copyWith(color: ink.withAlpha(170), fontWeight: FontWeight.w600),
+                ),
+              ]),
+            ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(color: Colors.white.withAlpha(110), shape: BoxShape.circle),
+              child: const Icon(Icons.vpn_key_rounded, color: ink, size: 20),
+            ),
+          ]),
+        ),
+      ),
+    );
   }
 
   @override
@@ -897,15 +1025,16 @@ class _HomeState extends State<Home> {
     const titles = ['Stok', 'Alış', 'Satış', 'Gider', 'Rapor', 'Yedek'];
     final List<Widget Function()> pages = [stokPage, () => tradePage(false), () => tradePage(true), giderPage, raporPage, yedekPage];
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: tabColors[tab],
-        foregroundColor: Colors.white,
-        title: Text('KeyFlow · ${titles[tab]}'),
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+        child: Column(children: [
+          header(titles[tab]),
+          Expanded(child: ready ? pages[tab]() : const Center(child: CircularProgressIndicator())),
+        ]),
       ),
-      body: ready ? pages[tab]() : const Center(child: CircularProgressIndicator()),
       floatingActionButton: ready ? fab() : null,
       bottomNavigationBar: NavigationBar(
-        indicatorColor: tabColors[tab].withAlpha(60),
+        indicatorColor: tabColors[tab].withAlpha(140),
         selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => tab = i),
         destinations: const [
