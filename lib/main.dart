@@ -117,10 +117,10 @@ class App extends StatelessWidget {
   const App({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'Anahtarlık Takip',
+        title: 'KeyFlow',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(colorSchemeSeed: const Color(0xFF0F766E), useMaterial3: true),
-        darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF0F766E), brightness: Brightness.dark, useMaterial3: true),
+        theme: ThemeData(colorSchemeSeed: const Color(0xFF10B981), useMaterial3: true),
+        darkTheme: ThemeData(colorSchemeSeed: const Color(0xFF10B981), brightness: Brightness.dark, useMaterial3: true),
         home: const Home(),
       );
 }
