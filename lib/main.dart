@@ -26,9 +26,22 @@ String ds(DateTime t) => '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.da
 double num2(dynamic v) => (v as num).toDouble();
 double? parseNum(String s) => double.tryParse(s.trim().replaceAll(',', '.'));
 
+String emojiFor(String name) {
+  final n = name.toLowerCase();
+  const map = {
+    'kedi': '🐱', 'köpek': '🐶', 'kalp': '❤️', 'yıldız': '⭐', 'çiçek': '🌸', 'kelebek': '🦋',
+    'balık': '🐟', 'kuş': '🐦', 'tavşan': '🐰', 'ayı': '🐻', 'araba': '🚗', 'güneş': '☀️',
+    'bulut': '☁️', 'meyve': '🍓', 'unicorn': '🦄', 'at ': '🐴',
+  };
+  for (final e in map.entries) {
+    if (n.contains(e.key)) return e.value;
+  }
+  return '🔑';
+}
+
 // ---------- Veri ----------
 class Data {
-  List<Map<String, dynamic>> products = [], purchases = [], sales = [], expenses = [];
+  List<Map<String, dynamic>> products = [], purchases = [], sales = [], expenses = [], adjustments = [];
   int nextId = 1;
   String? lastBackup;
 
@@ -39,9 +52,10 @@ class Data {
     purchases = l('purchases');
     sales = l('sales');
     expenses = l('expenses');
+    adjustments = l('adjustments');
     lastBackup = j['lastBackup'] as String?;
     var maxId = 0;
-    for (final list in [products, purchases, sales, expenses]) {
+    for (final list in [products, purchases, sales, expenses, adjustments]) {
       for (final e in list) {
         if ((e['id'] as int) > maxId) maxId = e['id'] as int;
       }
@@ -55,6 +69,7 @@ class Data {
         'purchases': purchases,
         'sales': sales,
         'expenses': expenses,
+        'adjustments': adjustments,
         'nextId': nextId,
         'lastBackup': lastBackup,
       };
@@ -68,6 +83,9 @@ class Data {
     }
     for (final e in sales) {
       if (e['pid'] == pid) s -= e['qty'] as int;
+    }
+    for (final e in adjustments) {
+      if (e['pid'] == pid) s += e['qty'] as int;
     }
     return s;
   }
@@ -220,7 +238,48 @@ class _HomeState extends State<Home> {
       snack('Önce bu çeşidin alış/satış kayıtlarını sil.');
       return;
     }
-    if (await confirm('${p['name']} silinsin mi?')) change(() => d.products.remove(p));
+    if (await confirm('${p['name']} silinsin mi?')) {
+      change(() {
+        d.products.remove(p);
+        d.adjustments.removeWhere((e) => e['pid'] == id);
+      });
+    }
+  }
+
+  Future<void> adjustStock(Map<String, dynamic> p) async {
+    final id = p['id'] as int;
+    final cur = d.stock(id);
+    final c = TextEditingController(text: '$cur');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (x) => AlertDialog(
+        title: const Text('Stok sayımı'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${p['name']}: kayıtlara göre $cur adet görünüyor.'),
+          const SizedBox(height: 8),
+          TextField(
+            controller: c,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Gerçekte kaç tane var?'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('Kaydet')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final n = int.tryParse(c.text.trim());
+    if (n == null || n < 0) {
+      snack('Geçerli bir adet gir.');
+      return;
+    }
+    final diff = n - cur;
+    if (diff == 0) return;
+    change(() => d.adjustments.add({'id': d.nextId++, 'pid': id, 'qty': diff, 'date': ds(DateTime.now())}));
+    snack('Stok $n olarak düzeltildi.');
   }
 
   Future<void> productSheet(Map<String, dynamic> p) async {
@@ -230,11 +289,12 @@ class _HomeState extends State<Home> {
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            title: Text(p['name'] as String, style: Theme.of(c).textTheme.titleLarge),
+            title: Text('${emojiFor(p['name'] as String)} ${p['name']}', style: Theme.of(c).textTheme.titleLarge),
             subtitle: Text('Stok ${d.stock(id)} · ort. alış ${tl(d.avgCost(id))}'),
           ),
           ListTile(leading: const Icon(Icons.sell_outlined), title: const Text('Satış ekle'), onTap: () { Navigator.pop(c); tradeSheet(true, pid: id); }),
           ListTile(leading: const Icon(Icons.add_shopping_cart), title: const Text('Alış ekle'), onTap: () { Navigator.pop(c); tradeSheet(false, pid: id); }),
+          ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Stok düzelt (sayım)'), onTap: () { Navigator.pop(c); adjustStock(p); }),
           ListTile(leading: const Icon(Icons.edit_outlined), title: const Text('Adını değiştir'), onTap: () { Navigator.pop(c); renameProduct(p); }),
           ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Sil'), onTap: () { Navigator.pop(c); deleteProduct(p); }),
         ]),
@@ -395,6 +455,56 @@ class _HomeState extends State<Home> {
   }
 
   // ----- Sayfalar -----
+  Future<void> quickSale(int pid) async {
+    final lp = lastPrice(true, pid);
+    final price = parseNum(lp);
+    if (price == null) {
+      tradeSheet(true, pid: pid);
+      return;
+    }
+    if (d.stock(pid) <= 0 && !await confirm('Stokta görünmüyor, yine de satış yazılsın mı?')) return;
+    final entry = <String, dynamic>{'id': d.nextId++, 'pid': pid, 'qty': 1, 'price': price, 'date': ds(DateTime.now()), 'note': ''};
+    change(() => d.sales.add(entry));
+    if (!mounted) return;
+    final m = ScaffoldMessenger.of(context);
+    m.clearSnackBars();
+    m.showSnackBar(SnackBar(
+      content: Text('✅ ${d.name(pid)} satıldı · ${tl(price)}'),
+      action: SnackBarAction(label: 'Geri al', onPressed: () => change(() => d.sales.remove(entry))),
+    ));
+  }
+
+  Widget stokCard(Map<String, dynamic> p) {
+    final id = p['id'] as int;
+    final st = d.stock(id);
+    final cs = Theme.of(context).colorScheme;
+    final col = st <= 0 ? cs.error : (st <= 3 ? Colors.orange : null);
+    final avg = 'Ort. alış ${tl(d.avgCost(id))}';
+    final sub = st <= 0 ? '⚠️ Stok bitti · $avg' : (st <= 3 ? '🔔 Azaldı · $avg' : avg);
+    return Card(
+      child: Column(children: [
+        ListTile(
+          onTap: () => productSheet(p),
+          leading: CircleAvatar(
+            backgroundColor: cs.primaryContainer,
+            child: Text(emojiFor(p['name'] as String), style: const TextStyle(fontSize: 22)),
+          ),
+          title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: Text(sub),
+          trailing: Text('$st', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: col)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          child: Row(children: [
+            Expanded(child: FilledButton.tonalIcon(onPressed: () => quickSale(id), icon: const Text('💰'), label: const Text('1 sattım'))),
+            const SizedBox(width: 8),
+            Expanded(child: OutlinedButton.icon(onPressed: () => tradeSheet(false, pid: id), icon: const Text('📦'), label: const Text('Alış ekle'))),
+          ]),
+        ),
+      ]),
+    );
+  }
+
   Widget stokPage() {
     var total = 0.0, pieces = 0;
     for (final p in d.products) {
@@ -411,11 +521,12 @@ class _HomeState extends State<Home> {
       if (d.hasData && old)
         Card(child: ListTile(title: const Text('Yedek almayı unutma'), subtitle: const Text('Dokun ve yedekle'), onTap: () => setState(() => tab = 5))),
       Card(
+        color: Theme.of(context).colorScheme.primaryContainer,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Eldeki toplam'), Text('$pieces adet', style: big)])),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Maliyet değeri'), Text(tl(total), style: big)])),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('📦 Eldeki toplam'), Text('$pieces adet', style: big)])),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('💎 Maliyet değeri'), Text(tl(total), style: big)])),
           ]),
         ),
       ),
@@ -423,27 +534,12 @@ class _HomeState extends State<Home> {
         const Card(
           child: Padding(
             padding: EdgeInsets.all(16),
-            child: Text('Başlamak için:\n\n1) Aşağıdan "Çeşit ekle" ile anahtarlık çeşitlerini yaz.\n2) Elindeki koliyi sayıp adetleri "Alış" olarak gir (fiyatı yaklaşık yazabilirsin).\n3) Müşteriye verdikçe "Satış" gir.\n4) Rapor sekmesinde kârını gör.'),
+            child: Text('👋 Hoş geldin!\n\n1️⃣ Aşağıdan "Çeşit ekle" ile anahtarlık çeşitlerini yaz.\n2️⃣ Elindekileri sayıp "Alış ekle" ile gir (fiyat yaklaşık olabilir).\n3️⃣ Satınca çeşidin altındaki "1 sattım" düğmesine bas.\n4️⃣ 📊 Rapor sekmesinde kârını gör.'),
           ),
         )
       else
-        const Padding(padding: EdgeInsets.fromLTRB(4, 4, 4, 0), child: Text('Çeşide dokun: hızlı satış, alış, ad değiştirme, silme.')),
-      for (final p in ps)
-        Card(
-          child: ListTile(
-            onTap: () => productSheet(p),
-            title: Text(p['name'] as String),
-            subtitle: Text('Ort. alış ${tl(d.avgCost(p['id'] as int))}'),
-            trailing: Text(
-              '${d.stock(p['id'] as int)}',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-                color: d.stock(p['id'] as int) <= 0 ? Theme.of(context).colorScheme.error : (d.stock(p['id'] as int) <= 3 ? Colors.orange : null),
-              ),
-            ),
-          ),
-        ),
+        const Padding(padding: EdgeInsets.fromLTRB(4, 4, 4, 0), child: Text('👆 Çeşide dokun: stok düzelt, ad değiştir, sil.')),
+      for (final p in ps) stokCard(p),
     ]);
   }
 
@@ -459,17 +555,27 @@ class _HomeState extends State<Home> {
     return n.isEmpty ? base : '$base\n$n';
   }
 
-  Widget emptyMsg(String m) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(m, textAlign: TextAlign.center)));
+  Widget emptyMsg(String m, [String e = '🔑']) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(e, style: const TextStyle(fontSize: 64)),
+            const SizedBox(height: 12),
+            Text(m, textAlign: TextAlign.center),
+          ]),
+        ),
+      );
 
   Widget tradePage(bool sale) {
     final list = sorted(sale ? d.sales : d.purchases);
-    if (list.isEmpty) return emptyMsg(sale ? 'Henüz satış yok.\nAşağıdan "Satış ekle"ye bas.' : 'Henüz alış yok.\nAşağıdan "Alış ekle"ye bas.');
+    if (list.isEmpty) return emptyMsg(sale ? 'Henüz satış yok.\nAşağıdan "Satış ekle"ye bas.' : 'Henüz alış yok.\nAşağıdan "Alış ekle"ye bas.', sale ? '💰' : '📦');
     return ListView(padding: pad, children: [
       const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
       for (final e in list)
         Card(
           child: ListTile(
             onTap: () => tradeSheet(sale, edit: e),
+            leading: CircleAvatar(child: Text(sale ? '💰' : '📦')),
             isThreeLine: ((e['note'] as String?) ?? '').isNotEmpty,
             title: Text(d.name(e['pid'] as int)),
             subtitle: Text(tradeSub(e)),
@@ -486,13 +592,14 @@ class _HomeState extends State<Home> {
 
   Widget giderPage() {
     final list = sorted(d.expenses);
-    if (list.isEmpty) return emptyMsg('Henüz gider yok.\nKargo, filament, ambalaj gibi masrafları buraya yaz.');
+    if (list.isEmpty) return emptyMsg('Henüz gider yok.\nKargo, filament, ambalaj gibi masrafları buraya yaz.', '🧾');
     return ListView(padding: pad, children: [
       const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
       for (final e in list)
         Card(
           child: ListTile(
             onTap: () => expenseSheet(edit: e),
+            leading: const CircleAvatar(child: Text('🧾')),
             title: Text(e['note'] as String),
             subtitle: Text('${e['date']} · ${tl(num2(e['amount']))}'),
             trailing: IconButton(
@@ -551,19 +658,20 @@ class _HomeState extends State<Home> {
         period == 2 ? const SizedBox(width: 48, height: 48) : IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => shiftPeriod(1)),
       ]),
       Card(
+        color: net >= 0 ? Colors.green.withAlpha(40) : Theme.of(context).colorScheme.errorContainer,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(net >= 0 ? 'Net kâr' : 'Net zarar'),
+            Text(net >= 0 ? '🎉 Net kâr' : '😕 Net zarar'),
             Text(tl(net), style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: net >= 0 ? good : bad)),
           ]),
         ),
       ),
-      Card(child: ListTile(title: const Text('Satış geliri'), trailing: Text(tl(rev)))),
-      Card(child: ListTile(title: const Text('Satılanın maliyeti'), trailing: Text(tl(cogs)))),
-      Card(child: ListTile(title: const Text('Diğer giderler'), trailing: Text(tl(gid)))),
-      Card(child: ListTile(title: const Text('Yaptırana ödenen (alış)'), trailing: Text(tl(spent)))),
-      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('Çeşit bazında (brüt kâr)')),
+      Card(child: ListTile(title: const Text('💰 Satış geliri'), trailing: Text(tl(rev)))),
+      Card(child: ListTile(title: const Text('🏷️ Satılanın maliyeti'), trailing: Text(tl(cogs)))),
+      Card(child: ListTile(title: const Text('🧾 Diğer giderler'), trailing: Text(tl(gid)))),
+      Card(child: ListTile(title: const Text('📦 Yaptırana ödenen (alış)'), trailing: Text(tl(spent)))),
+      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('🏆 Çeşit bazında (brüt kâr)')),
       if (entries.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Bu dönemde satış yok.')),
       for (final en in entries)
         Card(
@@ -611,13 +719,13 @@ class _HomeState extends State<Home> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Yedek al', style: Theme.of(context).textTheme.titleMedium),
+              Text('💾 Yedek al', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 6),
               const Text('Telefon değiştirirsen ya da uygulamayı silersen verilerini buradan geri yüklersin. Dosyayı WhatsApp’tan kendine, Drive’a ya da e-postaya gönder.'),
               const SizedBox(height: 6),
               Text('Son yedek: ${d.lastBackup ?? 'hiç alınmadı'}'),
               const SizedBox(height: 10),
-              FilledButton.icon(onPressed: backup, icon: const Icon(Icons.share), label: const Text('Yedeği paylaş')),
+              FilledButton.icon(onPressed: backup, icon: const Icon(Icons.share), label: const Text('Yedeği paylaş (WhatsApp, Drive...)')),
             ]),
           ),
         ),
@@ -625,7 +733,7 @@ class _HomeState extends State<Home> {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Yedekten geri yükle', style: Theme.of(context).textTheme.titleMedium),
+              Text('📥 Yedekten geri yükle', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 6),
               const Text('Yeni telefonda uygulamayı aç, yedek dosyasını seç.'),
               const SizedBox(height: 10),
@@ -651,10 +759,10 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    const titles = ['Stok', 'Alış', 'Satış', 'Gider', 'Rapor', 'Yedek'];
+    const titles = ['📦 Stok', '🛒 Alış', '💰 Satış', '🧾 Gider', '📊 Rapor', '💾 Yedek'];
     final List<Widget Function()> pages = [stokPage, () => tradePage(false), () => tradePage(true), giderPage, raporPage, yedekPage];
     return Scaffold(
-      appBar: AppBar(title: Text('Anahtarlık Takip · ${titles[tab]}')),
+      appBar: AppBar(title: Text('🔑 ${titles[tab]}')),
       body: ready ? pages[tab]() : const Center(child: CircularProgressIndicator()),
       floatingActionButton: ready ? fab() : null,
       bottomNavigationBar: NavigationBar(
