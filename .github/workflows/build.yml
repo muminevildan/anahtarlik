@@ -26,9 +26,6 @@ jobs:
       # Uygulamanın telefondaki adı (KeyFlow yerine istediğini yazabilirsin)
       - run: sed -i 's/android:label="[^"]*"/android:label="KeyLog"/' android/app/src/main/AndroidManifest.xml
 
-      # Yazı tipi (google_fonts) ilk açılışta internetten indirilir, bunun için izin gerekir
-      - run: sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
-
       - run: flutter pub get
 
       # Logoyu (icon.png ve icon_fg.png) uygulamaya yerleştirir
