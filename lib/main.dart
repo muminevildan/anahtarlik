@@ -1,11 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:js_interop';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web/web.dart' as web;
 
 void main() => runApp(const App());
 
@@ -138,6 +141,13 @@ class Data {
     return q == 0 ? 0 : t / q;
   }
 
+  Map<String, dynamic>? product(int pid) {
+    for (final p in products) {
+      if (p['id'] == pid) return p;
+    }
+    return null;
+  }
+
   String name(int pid) {
     for (final p in products) {
       if (p['id'] == pid) return p['name'] as String;
@@ -156,7 +166,20 @@ class Data {
   }
 }
 
-Future<File> dataFile() async => File('${(await getApplicationDocumentsDirectory()).path}/anahtarlik.json');
+const storeKey = 'keylog_data';
+
+// Paylaşım çalışmazsa yedeği doğrudan indirir
+void downloadText(String name, String text) {
+  final blob = web.Blob([text.toJS].toJS, web.BlobPropertyBag(type: 'application/json'));
+  final url = web.URL.createObjectURL(blob);
+  final a = web.document.createElement('a') as web.HTMLAnchorElement;
+  a.href = url;
+  a.download = name;
+  web.document.body?.append(a);
+  a.click();
+  a.remove();
+  web.URL.revokeObjectURL(url);
+}
 
 // ---------- Uygulama ----------
 ThemeData buildTheme(Brightness b) {
@@ -189,6 +212,43 @@ class _HomeState extends State<Home> {
   int period = 0;
   static const pad = EdgeInsets.fromLTRB(12, 12, 12, 90);
 
+  // ----- Fotoğraflar (küçültülüp metin olarak veriye gömülür, yedeğe de dahil olur) -----
+  final Map<String, Uint8List> _ph = {};
+
+  Uint8List? photoBytes(Map<String, dynamic>? p) {
+    final s = p?['photo'];
+    if (p == null || s is! String || s.isEmpty) return null;
+    return _ph.putIfAbsent('${p['id']}:${s.hashCode}', () => base64Decode(s));
+  }
+
+  Widget avatarOf(int pid, {double radius = 20, IconData icon = Icons.vpn_key}) {
+    final b = photoBytes(d.product(pid));
+    if (b != null) return CircleAvatar(radius: radius, backgroundImage: MemoryImage(b));
+    return CircleAvatar(radius: radius, backgroundColor: d.colorOf(pid), child: Icon(icon, color: ink, size: radius * 0.95));
+  }
+
+  Future<String?> pickPhoto(ImageSource src) async {
+    try {
+      final x = await ImagePicker().pickImage(source: src, maxWidth: 320, maxHeight: 320, imageQuality: 60);
+      if (x == null) return null;
+      return base64Encode(await x.readAsBytes());
+    } catch (_) {
+      snack('Fotoğraf alınamadı.');
+      return null;
+    }
+  }
+
+  void showPhoto(int pid) {
+    final b = photoBytes(d.product(pid));
+    if (b == null) return;
+    showDialog(
+      context: context,
+      builder: (c) => Dialog(
+        child: ClipRRect(borderRadius: BorderRadius.circular(20), child: Image.memory(b, fit: BoxFit.contain)),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -196,12 +256,13 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> _load() async {
-    final f = await dataFile();
-    if (await f.exists()) {
+    final sp = await SharedPreferences.getInstance();
+    final s = sp.getString(storeKey);
+    if (s != null) {
       try {
-        d = Data()..load(jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+        d = Data()..load(jsonDecode(s) as Map<String, dynamic>);
       } catch (_) {
-        await f.copy('${f.path}.bozuk');
+        await sp.setString('${storeKey}_bozuk', s);
         loadError = true;
       }
     }
@@ -209,10 +270,13 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> save() async {
-    final f = await dataFile();
-    final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode(d.toJson()), flush: true);
-    await tmp.rename(f.path);
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final ok = await sp.setString(storeKey, jsonEncode(d.toJson()));
+      if (!ok && mounted) snack('Kaydedilemedi! Hemen yedek al.');
+    } catch (_) {
+      if (mounted) snack('Kaydedilemedi! Hemen yedek al.');
+    }
   }
 
   void change(VoidCallback fn) {
@@ -259,6 +323,8 @@ class _HomeState extends State<Home> {
     final qty = TextEditingController();
     final price = TextEditingController();
     var color = edit == null ? nextColor() : ((edit['color'] as int?) ?? (edit['id'] as int) % palette.length);
+    String? photo = edit?['photo'] as String?;
+    Uint8List? pBytes = photoBytes(edit);
     String? err;
     final ok = await showDialog<bool>(
       context: context,
@@ -273,6 +339,34 @@ class _HomeState extends State<Home> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Çeşit adı', hintText: 'Örn. Kedi'),
               ),
+              const SizedBox(height: 16),
+              Row(children: [
+                pBytes == null
+                    ? CircleAvatar(radius: 32, backgroundColor: palette[color].withAlpha(120), child: const Icon(Icons.add_a_photo_outlined, color: ink))
+                    : CircleAvatar(radius: 32, backgroundImage: MemoryImage(pBytes!)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Wrap(spacing: 8, children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final r = await pickPhoto(ImageSource.camera);
+                        if (r != null) set(() { photo = r; pBytes = base64Decode(r); });
+                      },
+                      icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                      label: const Text('Çek'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final r = await pickPhoto(ImageSource.gallery);
+                        if (r != null) set(() { photo = r; pBytes = base64Decode(r); });
+                      },
+                      icon: const Icon(Icons.photo_library_outlined, size: 18),
+                      label: const Text('Galeri'),
+                    ),
+                    if (pBytes != null) TextButton(onPressed: () => set(() { photo = null; pBytes = null; }), child: const Text('Kaldır')),
+                  ]),
+                ),
+              ]),
               const SizedBox(height: 16),
               const Text('Renk'),
               const SizedBox(height: 8),
@@ -339,6 +433,11 @@ class _HomeState extends State<Home> {
       change(() {
         edit['name'] = n;
         edit['color'] = color;
+        if (photo == null) {
+          edit.remove('photo');
+        } else {
+          edit['photo'] = photo;
+        }
       });
       return;
     }
@@ -346,7 +445,7 @@ class _HomeState extends State<Home> {
     final pr = parseNum(price.text) ?? 0;
     change(() {
       final id = d.nextId++;
-      d.products.add({'id': id, 'name': n, 'color': color});
+      d.products.add({'id': id, 'name': n, 'color': color, if (photo != null) 'photo': photo});
       if (q > 0) {
         d.purchases.add({'id': d.nextId++, 'pid': id, 'qty': q, 'price': pr, 'date': ds(DateTime.now()), 'note': 'Başlangıç stoku'});
       }
@@ -410,14 +509,14 @@ class _HomeState extends State<Home> {
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            leading: CircleAvatar(backgroundColor: d.colorOf(id), child: const Icon(Icons.vpn_key, color: ink, size: 20)),
+            leading: avatarOf(id),
             title: Text(p['name'] as String, style: Theme.of(c).textTheme.titleLarge),
             subtitle: Text('Stok ${d.stock(id)} · ort. alış ${tl(d.avgCost(id))}'),
           ),
           ListTile(leading: const Icon(Icons.sell_outlined), title: const Text('Satış ekle'), onTap: () { Navigator.pop(c); tradeSheet(true, pid: id); }),
           ListTile(leading: const Icon(Icons.add_shopping_cart), title: const Text('Alış ekle'), onTap: () { Navigator.pop(c); tradeSheet(false, pid: id); }),
           ListTile(leading: const Icon(Icons.fact_check_outlined), title: const Text('Stok düzelt (sayım)'), onTap: () { Navigator.pop(c); adjustStock(p); }),
-          ListTile(leading: const Icon(Icons.edit_outlined), title: const Text('Ad ve rengi değiştir'), onTap: () { Navigator.pop(c); renameProduct(p); }),
+          ListTile(leading: const Icon(Icons.edit_outlined), title: const Text('Ad, renk ve fotoğraf'), onTap: () { Navigator.pop(c); renameProduct(p); }),
           ListTile(leading: const Icon(Icons.delete_outline), title: const Text('Sil'), onTap: () { Navigator.pop(c); deleteProduct(p); }),
         ]),
       ),
@@ -455,7 +554,7 @@ class _HomeState extends State<Home> {
                     DropdownMenuItem(
                       value: p['id'] as int,
                       child: Row(children: [
-                        Icon(Icons.circle, size: 14, color: d.colorOf(p['id'] as int)),
+                        avatarOf(p['id'] as int, radius: 12),
                         const SizedBox(width: 8),
                         Text('${p['name']} (stok ${d.stock(p['id'] as int)})'),
                       ]),
@@ -652,7 +751,7 @@ class _HomeState extends State<Home> {
       child: Column(children: [
         ListTile(
           onTap: () => productSheet(p),
-          leading: CircleAvatar(backgroundColor: pc, child: const Icon(Icons.vpn_key, color: ink, size: 20)),
+          leading: GestureDetector(onTap: () => showPhoto(id), child: avatarOf(id, radius: 26)),
           title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
           subtitle: Text(st <= 0 ? 'Stok bitti · $avg' : (st <= 3 ? 'Azaldı · $avg' : avg)),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -759,7 +858,7 @@ class _HomeState extends State<Home> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             onTap: () => tradeSheet(sale, edit: e),
-            leading: CircleAvatar(backgroundColor: d.colorOf(e['pid'] as int), child: Icon(sale ? Icons.sell_outlined : Icons.add_shopping_cart, color: ink, size: 20)),
+            leading: avatarOf(e['pid'] as int, icon: sale ? Icons.sell_outlined : Icons.add_shopping_cart),
             isThreeLine: ((e['note'] as String?) ?? '').isNotEmpty,
             title: Text(d.name(e['pid'] as int), style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text(tradeSub(e)),
@@ -870,7 +969,7 @@ class _HomeState extends State<Home> {
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
-            leading: CircleAvatar(backgroundColor: d.colorOf(en.key), child: const Icon(Icons.vpn_key, color: ink, size: 18)),
+            leading: avatarOf(en.key),
             title: Text(d.name(en.key), style: const TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text('${en.value[0].toInt()} adet · gelir ${tl(en.value[1])}'),
             trailing: Text(tl(en.value[2]), style: TextStyle(fontWeight: FontWeight.w800, color: en.value[2] >= 0 ? good : bad)),
@@ -887,18 +986,24 @@ class _HomeState extends State<Home> {
     d.lastBackup = ds(DateTime.now());
     setState(() {});
     await save();
-    final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/anahtarlik-yedek-${ds(DateTime.now())}.json');
-    await f.writeAsString(jsonEncode(d.toJson()));
-    await Share.shareXFiles([XFile(f.path)], text: 'Anahtarlık yedek');
+    final name = 'keylog-yedek-${ds(DateTime.now())}.json';
+    final text = jsonEncode(d.toJson());
+    try {
+      await Share.shareXFiles(
+        [XFile.fromData(Uint8List.fromList(utf8.encode(text)), mimeType: 'application/json', name: name)],
+        fileNameOverrides: [name],
+      );
+    } catch (_) {
+      downloadText(name, text);
+    }
   }
 
   Future<void> restore() async {
-    final r = await FilePicker.platform.pickFiles();
-    final path = r?.files.single.path;
-    if (path == null) return;
+    final r = await FilePicker.platform.pickFiles(withData: true);
+    final bytes = r?.files.single.bytes;
+    if (bytes == null) return;
     try {
-      final j = jsonDecode(await File(path).readAsString());
+      final j = jsonDecode(utf8.decode(bytes));
       if (j is! Map || j['products'] is! List || j['purchases'] is! List || j['sales'] is! List) throw 'gecersiz';
       if (!await confirm('Mevcut veriler silinip yedek yüklenecek. Emin misin?')) return;
       final nd = Data()..load(Map<String, dynamic>.from(j));
@@ -910,6 +1015,12 @@ class _HomeState extends State<Home> {
   }
 
   Widget yedekPage() => ListView(padding: const EdgeInsets.all(12), children: [
+        const Card(
+          child: ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('Veriler bu cihazın tarayıcısında saklanır. Uygulamayı ana ekrana ekledikten sonra veri gir ve düzenli yedek al.'),
+          ),
+        ),
         Card(
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
