@@ -188,19 +188,25 @@ void downloadText(String name, String text) {
 }
 
 // ---------- Uygulama ----------
-ThemeData buildTheme(Brightness b) {
-  return ThemeData(colorSchemeSeed: const Color(0xFFC4B5FD), brightness: b, useMaterial3: true);
+// Seçili sekme; tema rengi buna göre değişir (mor sadece Stok'ta kalır)
+final tabNotifier = ValueNotifier<int>(0);
+
+ThemeData buildTheme(Brightness b, Color seed) {
+  return ThemeData(colorSchemeSeed: seed, brightness: b, useMaterial3: true);
 }
 
 class App extends StatelessWidget {
   const App({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'KeyLog',
-        debugShowCheckedModeBanner: false,
-        theme: buildTheme(Brightness.light),
-        darkTheme: buildTheme(Brightness.dark),
-        home: const Home(),
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: tabNotifier,
+        builder: (c, t, _) => MaterialApp(
+          title: 'KeyLog',
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(Brightness.light, tabColors[t]),
+          darkTheme: buildTheme(Brightness.dark, tabColors[t]),
+          home: const Home(),
+        ),
       );
 }
 
@@ -212,7 +218,8 @@ class Home extends StatefulWidget {
 
 class _HomeState extends State<Home> {
   Data d = Data();
-  int tab = 0;
+  int get tab => tabNotifier.value;
+  set tab(int v) => tabNotifier.value = v;
   bool ready = false, loadError = false;
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   int period = 0;
