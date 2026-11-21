@@ -27,6 +27,12 @@ String tl(double v) {
 }
 
 String ds(DateTime t) => '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+String niceDate(String s) {
+  final t = DateTime.parse(s);
+  return '${t.day} ${aylar[t.month - 1]} ${t.year}';
+}
+
+String shortMoney(double v) => v >= 1000 ? '${(v / 1000).toStringAsFixed(1)}B' : v.toStringAsFixed(0);
 double num2(dynamic v) => (v as num).toDouble();
 double? parseNum(String s) => double.tryParse(s.trim().replaceAll(',', '.'));
 
@@ -210,6 +216,8 @@ class _HomeState extends State<Home> {
   bool ready = false, loadError = false;
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   int period = 0;
+  final searchC = TextEditingController();
+  String query = '';
   static const pad = EdgeInsets.fromLTRB(12, 12, 12, 90);
 
   // ----- Fotoğraflar (küçültülüp metin olarak veriye gömülür, yedeğe de dahil olur) -----
@@ -253,6 +261,12 @@ class _HomeState extends State<Home> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    searchC.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -506,10 +520,11 @@ class _HomeState extends State<Home> {
     final id = p['id'] as int;
     await showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       builder: (c) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
-            leading: avatarOf(id),
+            leading: avatarOf(id, radius: 24),
             title: Text(p['name'] as String, style: Theme.of(c).textTheme.titleLarge),
             subtitle: Text('Stok ${d.stock(id)} · ort. alış ${tl(d.avgCost(id))}'),
           ),
@@ -541,9 +556,10 @@ class _HomeState extends State<Home> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (c) => StatefulBuilder(
         builder: (c, set) => Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(c).viewInsets.bottom + 16),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.of(c).viewInsets.bottom + 16),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(title, style: Theme.of(c).textTheme.titleLarge),
@@ -630,9 +646,10 @@ class _HomeState extends State<Home> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (c) => StatefulBuilder(
         builder: (c, set) => Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(c).viewInsets.bottom + 16),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, MediaQuery.of(c).viewInsets.bottom + 16),
           child: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(edit == null ? 'Gider ekle' : 'Gideri düzenle', style: Theme.of(c).textTheme.titleLarge),
@@ -704,26 +721,28 @@ class _HomeState extends State<Home> {
 
   Widget statCard(IconData icon, Color c, String label, String value) {
     final t = tone(context, c);
-    return Card(
-      color: c.withAlpha(70),
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Icon(icon, size: 18, color: t),
-            const SizedBox(width: 6),
-            Flexible(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
-          ]),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: t)),
-          ),
-        ]),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [c.withAlpha(110), c.withAlpha(40)]),
+        border: Border.all(color: c.withAlpha(140)),
       ),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value, style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: t)),
+            ),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        CircleAvatar(radius: 18, backgroundColor: c.withAlpha(120), child: Icon(icon, size: 18, color: ink)),
+      ]),
     );
   }
 
@@ -737,47 +756,74 @@ class _HomeState extends State<Home> {
         ),
       );
 
+  // Fotoğraflı çeşit kartı (ızgarada)
   Widget stokCard(Map<String, dynamic> p) {
     final id = p['id'] as int;
     final st = d.stock(id);
     final cs = Theme.of(context).colorScheme;
     final pc = d.colorOf(id);
-    final stColor = st <= 0 ? cs.error : (st <= 3 ? Colors.orange.shade800 : null);
-    final avg = 'Ort. alış ${tl(d.avgCost(id))}';
+    final bytes = photoBytes(p);
+    final low = st <= 3;
+    final badgeBg = st <= 0 ? cs.error : (low ? const Color(0xFFF59E0B) : Colors.white.withAlpha(235));
+    final badgeFg = st <= 0 ? cs.onError : ink;
+    final sub = st <= 0 ? 'Stok bitti' : (low ? 'Azaldı' : 'Ort. alış ${tl(d.avgCost(id))}');
     return Card(
-      color: pc.withAlpha(45),
+      clipBehavior: Clip.antiAlias,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: pc, width: 1.5)),
-      child: Column(children: [
-        ListTile(
-          onTap: () => productSheet(p),
-          leading: GestureDetector(onTap: () => showPhoto(id), child: avatarOf(id, radius: 26)),
-          title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-          subtitle: Text(st <= 0 ? 'Stok bitti · $avg' : (st <= 3 ? 'Azaldı · $avg' : avg)),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (st <= 3) Icon(Icons.warning_amber_rounded, color: stColor),
-            const SizedBox(width: 6),
-            Text('$st', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: stColor)),
-          ]),
+      margin: EdgeInsets.zero,
+      color: pc.withAlpha(40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: BorderSide(color: pc.withAlpha(180), width: 1.2)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: InkWell(
+            onTap: () => productSheet(p),
+            onLongPress: bytes == null ? null : () => showPhoto(id),
+            child: Stack(fit: StackFit.expand, children: [
+              bytes != null
+                  ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+                  : Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [pc, Color.lerp(pc, Colors.white, 0.55)!]),
+                      ),
+                      child: Icon(Icons.vpn_key_rounded, size: 56, color: ink.withAlpha(110)),
+                    ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(14)),
+                  child: Text('$st adet', style: TextStyle(fontWeight: FontWeight.w800, color: badgeFg, fontSize: 13)),
+                ),
+              ),
+            ]),
+          ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Text(p['name'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: st <= 0 ? cs.error : (low ? Colors.orange.shade800 : null))),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
           child: Row(children: [
             Expanded(
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: pc, foregroundColor: ink),
+              child: FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: pc, foregroundColor: ink, padding: const EdgeInsets.symmetric(horizontal: 4)),
                 onPressed: () => quickSale(id),
-                icon: const Icon(Icons.sell_outlined, size: 18),
-                label: const Text('1 sattım'),
+                child: const Text('1 sattım', style: TextStyle(fontWeight: FontWeight.w700)),
               ),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(foregroundColor: tone(context, pc), side: BorderSide(color: pc)),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 44,
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(padding: EdgeInsets.zero, foregroundColor: tone(context, pc), side: BorderSide(color: pc)),
                 onPressed: () => tradeSheet(false, pid: id),
-                icon: const Icon(Icons.add_shopping_cart, size: 18),
-                label: const Text('Alış ekle'),
+                child: const Icon(Icons.add_shopping_cart, size: 18),
               ),
             ),
           ]),
@@ -786,35 +832,116 @@ class _HomeState extends State<Home> {
     );
   }
 
+  Widget stepRow(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(children: [
+          CircleAvatar(radius: 17, backgroundColor: Colors.white.withAlpha(170), child: Icon(icon, size: 18, color: ink)),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text)),
+        ]),
+      );
+
+  Widget welcome() => Container(
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(26),
+          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [pPurple.withAlpha(130), pBlue.withAlpha(70)]),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Hoş geldin!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 14),
+          stepRow(Icons.add_photo_alternate_outlined, 'Aşağıdaki "Çeşit ekle" ile çeşidin adını, fotoğrafını ve elindeki stoğu gir.'),
+          stepRow(Icons.sell_outlined, 'Satınca çeşit kartındaki "1 sattım" düğmesine bas.'),
+          stepRow(Icons.add_shopping_cart, 'Yeni mal alınca "Alış ekle" de.'),
+          stepRow(Icons.bar_chart, 'Rapor sekmesinde kârını gör.'),
+        ]),
+      );
+
   Widget stokPage() {
-    var total = 0.0, pieces = 0;
+    var total = 0.0, pieces = 0, low = 0;
     for (final p in d.products) {
       final id = p['id'] as int;
-      total += d.stock(id) * d.avgCost(id);
-      pieces += d.stock(id);
+      final s = d.stock(id);
+      total += s * d.avgCost(id);
+      pieces += s;
+      if (s <= 3) low++;
     }
     final old = d.lastBackup == null || DateTime.now().difference(DateTime.parse(d.lastBackup!)).inDays > 7;
-    final ps = [...d.products]..sort((a, b) => (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
+    final all = [...d.products]..sort((a, b) => (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
+    final ps = query.isEmpty ? all : all.where((p) => (p['name'] as String).toLowerCase().contains(query)).toList();
     return ListView(padding: pad, children: [
       if (loadError)
         const Card(child: ListTile(title: Text('Veri dosyası okunamadı. Eski dosyanın kopyası saklandı, bana haber ver.'))),
       if (d.hasData && old)
-        Card(child: ListTile(title: const Text('Yedek almayı unutma'), subtitle: const Text('Dokun ve yedekle'), onTap: () => setState(() => tab = 5))),
+        Card(child: ListTile(leading: const Icon(Icons.backup_outlined), title: const Text('Yedek almayı unutma'), subtitle: const Text('Dokun ve yedekle'), onTap: () => setState(() => tab = 5))),
       Row(children: [
         Expanded(child: statCard(Icons.inventory_2, pPurple, 'Eldeki toplam', '$pieces adet')),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(child: statCard(Icons.savings, pYellow, 'Maliyet değeri', tl(total))),
       ]),
-      if (d.products.isEmpty)
-        const Card(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('Başlamak için:\n\n1) Aşağıdan "Çeşit ekle" ile çeşidin adını, rengini ve elindeki stoğu gir.\n2) Satınca çeşidin altındaki "1 sattım" düğmesine bas.\n3) Yeni mal alınca "Alış ekle" de.\n4) Rapor sekmesinde kârını gör.'),
+      if (low > 0)
+        Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF59E0B).withAlpha(40),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFF59E0B).withAlpha(120)),
           ),
-        )
-      else
-        const Padding(padding: EdgeInsets.fromLTRB(4, 4, 4, 0), child: Text('Çeşide dokun: stok düzelt, ad ve renk değiştir, sil.')),
-      for (final p in ps) stokCard(p),
+          child: Row(children: [
+            Icon(Icons.notifications_active_outlined, color: Colors.orange.shade800),
+            const SizedBox(width: 10),
+            Expanded(child: Text('$low çeşidin stoğu azaldı ya da bitti', style: const TextStyle(fontWeight: FontWeight.w600))),
+          ]),
+        ),
+      if (d.products.length >= 6)
+        Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: TextField(
+            controller: searchC,
+            onChanged: (v) => setState(() => query = v.trim().toLowerCase()),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: 'Çeşit ara...',
+              filled: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+              suffixIcon: query.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        searchC.clear();
+                        setState(() => query = '');
+                      },
+                    ),
+            ),
+          ),
+        ),
+      if (d.products.isEmpty)
+        welcome()
+      else ...[
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 12, 4, 0),
+          child: Text('Karta dokun: stok düzelt, ad/renk/fotoğraf değiştir, sil. Fotoğrafa uzun basınca büyür.', style: TextStyle(fontSize: 12)),
+        ),
+        if (ps.isEmpty)
+          const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Eşleşen çeşit yok.')))
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(top: 10),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 220,
+              mainAxisExtent: 270,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+            ),
+            itemCount: ps.length,
+            itemBuilder: (c, i) => stokCard(ps[i]),
+          ),
+      ],
     ]);
   }
 
@@ -826,7 +953,7 @@ class _HomeState extends State<Home> {
 
   String tradeSub(Map<String, dynamic> e) {
     final n = (e['note'] as String?) ?? '';
-    final base = '${e['date']} · ${e['qty']} adet × ${tl(num2(e['price']))} = ${tl((e['qty'] as int) * num2(e['price']))}';
+    final base = '${e['qty']} adet × ${tl(num2(e['price']))} = ${tl((e['qty'] as int) * num2(e['price']))}';
     return n.isEmpty ? base : '$base\n$n';
   }
 
@@ -834,8 +961,8 @@ class _HomeState extends State<Home> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 72, color: color),
-            const SizedBox(height: 12),
+            CircleAvatar(radius: 48, backgroundColor: color.withAlpha(90), child: Icon(icon, size: 48, color: tone(context, color))),
+            const SizedBox(height: 16),
             Text(m, textAlign: TextAlign.center),
           ]),
         ),
@@ -850,55 +977,146 @@ class _HomeState extends State<Home> {
         sale ? pGreen : pOrange,
       );
     }
-    return ListView(padding: pad, children: [
-      const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
-      for (final e in list)
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            onTap: () => tradeSheet(sale, edit: e),
-            leading: avatarOf(e['pid'] as int, icon: sale ? Icons.sell_outlined : Icons.add_shopping_cart),
-            isThreeLine: ((e['note'] as String?) ?? '').isNotEmpty,
-            title: Text(d.name(e['pid'] as int), style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text(tradeSub(e)),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () async {
-                if (await confirm('Silinsin mi?')) change(() => (sale ? d.sales : d.purchases).remove(e));
-              },
-            ),
+    final totals = <String, double>{};
+    for (final e in list) {
+      final k = e['date'] as String;
+      totals[k] = (totals[k] ?? 0) + (e['qty'] as int) * num2(e['price']);
+    }
+    final accent = tone(context, sale ? pGreen : pOrange);
+    final children = <Widget>[
+      const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 0), child: Text('Düzeltmek için kayda dokun.', style: TextStyle(fontSize: 12))),
+    ];
+    String? last;
+    for (final e in list) {
+      final day = e['date'] as String;
+      if (day != last) {
+        last = day;
+        children.add(Padding(
+          padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text(niceDate(day), style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(tl(totals[day] ?? 0), style: TextStyle(fontWeight: FontWeight.w800, color: accent)),
+          ]),
+        ));
+      }
+      children.add(Card(
+        elevation: 0,
+        margin: const EdgeInsets.only(bottom: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ListTile(
+          onTap: () => tradeSheet(sale, edit: e),
+          leading: avatarOf(e['pid'] as int, icon: sale ? Icons.sell_outlined : Icons.add_shopping_cart),
+          isThreeLine: ((e['note'] as String?) ?? '').isNotEmpty,
+          title: Text(d.name(e['pid'] as int), style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text(tradeSub(e)),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: () async {
+              if (await confirm('Silinsin mi?')) change(() => (sale ? d.sales : d.purchases).remove(e));
+            },
           ),
         ),
-    ]);
+      ));
+    }
+    return ListView(padding: pad, children: children);
   }
 
   Widget giderPage() {
     final list = sorted(d.expenses);
     if (list.isEmpty) return emptyMsg('Henüz gider yok.\nKargo, filament, ambalaj gibi masrafları buraya yaz.', Icons.receipt_long, pRed);
-    return ListView(padding: pad, children: [
-      const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 4), child: Text('Düzeltmek için kayda dokun.')),
-      for (final e in list)
-        Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            onTap: () => expenseSheet(edit: e),
-            leading: const CircleAvatar(backgroundColor: pRed, child: Icon(Icons.receipt_long, color: ink, size: 20)),
-            title: Text(e['note'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text('${e['date']} · ${tl(num2(e['amount']))}'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () async {
-                if (await confirm('Silinsin mi?')) change(() => d.expenses.remove(e));
-              },
-            ),
+    final totals = <String, double>{};
+    for (final e in list) {
+      final k = e['date'] as String;
+      totals[k] = (totals[k] ?? 0) + num2(e['amount']);
+    }
+    final accent = tone(context, pRed);
+    final children = <Widget>[
+      const Padding(padding: EdgeInsets.fromLTRB(4, 0, 4, 0), child: Text('Düzeltmek için kayda dokun.', style: TextStyle(fontSize: 12))),
+    ];
+    String? last;
+    for (final e in list) {
+      final day = e['date'] as String;
+      if (day != last) {
+        last = day;
+        children.add(Padding(
+          padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text(niceDate(day), style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(tl(totals[day] ?? 0), style: TextStyle(fontWeight: FontWeight.w800, color: accent)),
+          ]),
+        ));
+      }
+      children.add(Card(
+        elevation: 0,
+        margin: const EdgeInsets.only(bottom: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ListTile(
+          onTap: () => expenseSheet(edit: e),
+          leading: const CircleAvatar(backgroundColor: pRed, child: Icon(Icons.receipt_long, color: ink, size: 20)),
+          title: Text(e['note'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text(tl(num2(e['amount']))),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: () async {
+              if (await confirm('Silinsin mi?')) change(() => d.expenses.remove(e));
+            },
           ),
         ),
-    ]);
+      ));
+    }
+    return ListView(padding: pad, children: children);
   }
 
   void shiftPeriod(int n) => setState(() => month = period == 0 ? DateTime(month.year, month.month + n) : DateTime(month.year + n, month.month));
+
+  // Son 6 ayın satış geliri grafiği
+  Widget monthChart() {
+    final months = [for (var i = 5; i >= 0; i--) DateTime(month.year, month.month - i)];
+    final vals = <double>[];
+    for (final m in months) {
+      final k = '${m.year}-${m.month.toString().padLeft(2, '0')}';
+      var r = 0.0;
+      for (final e in d.sales) {
+        if ((e['date'] as String).startsWith(k)) r += (e['qty'] as int) * num2(e['price']);
+      }
+      vals.add(r);
+    }
+    final mx = vals.fold<double>(0, (a, b) => b > a ? b : a);
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Son 6 ay satış geliri', style: TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 130,
+            child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              for (var i = 0; i < 6; i++)
+                Expanded(
+                  child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                    Text(vals[i] == 0 ? '' : shortMoney(vals[i]), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      height: mx == 0 ? 4 : 4 + 80 * vals[i] / mx,
+                      margin: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: i == 5 ? tabColors[4] : tabColors[4].withAlpha(110),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(aylar[months[i].month - 1].substring(0, 3), style: const TextStyle(fontSize: 11)),
+                  ]),
+                ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 
   Widget raporPage() {
     final key = period == 0 ? '${month.year}-${month.month.toString().padLeft(2, '0')}' : (period == 1 ? '${month.year}' : '');
@@ -942,32 +1160,42 @@ class _HomeState extends State<Home> {
         Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
         period == 2 ? const SizedBox(width: 48, height: 48) : IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => shiftPeriod(1)),
       ]),
-      Card(
-        color: (net >= 0 ? pGreen : pRed).withAlpha(80),
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(net >= 0 ? Icons.trending_up : Icons.trending_down, color: net >= 0 ? good : bad),
-              const SizedBox(width: 8),
-              Text(net >= 0 ? 'Net kâr' : 'Net zarar', style: const TextStyle(fontWeight: FontWeight.w600)),
-            ]),
-            Text(tl(net), style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: net >= 0 ? good : bad)),
-          ]),
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [(net >= 0 ? pGreen : pRed).withAlpha(140), (net >= 0 ? pGreen : pRed).withAlpha(50)],
+          ),
         ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(net >= 0 ? Icons.trending_up : Icons.trending_down, color: net >= 0 ? good : bad),
+            const SizedBox(width: 8),
+            Text(net >= 0 ? 'Net kâr' : 'Net zarar', style: const TextStyle(fontWeight: FontWeight.w600)),
+          ]),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(tl(net), style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: net >= 0 ? good : bad)),
+          ),
+        ]),
       ),
+      const SizedBox(height: 8),
+      if (d.sales.isNotEmpty) monthChart(),
       infoRow(Icons.payments, pBlue, 'Satış geliri', tl(rev)),
       infoRow(Icons.sell, pOrange, 'Satılanın maliyeti', tl(cogs)),
       infoRow(Icons.receipt_long, pRed, 'Diğer giderler', tl(gid)),
       infoRow(Icons.inventory_2, pPurple, 'Yaptırana ödenen (alış)', tl(spent)),
-      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('Çeşit bazında (brüt kâr)', style: TextStyle(fontWeight: FontWeight.w700))),
+      const Padding(padding: EdgeInsets.fromLTRB(4, 12, 4, 4), child: Text('Çeşit bazında (brüt kâr)', style: TextStyle(fontWeight: FontWeight.w800))),
       if (entries.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Bu dönemde satış yok.')),
       for (final en in entries)
         Card(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: ListTile(
             leading: avatarOf(en.key),
             title: Text(d.name(en.key), style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -1023,7 +1251,7 @@ class _HomeState extends State<Home> {
         ),
         Card(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1044,7 +1272,7 @@ class _HomeState extends State<Home> {
         ),
         Card(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1086,6 +1314,7 @@ class _HomeState extends State<Home> {
     final now = DateTime.now();
     final tt = Theme.of(context).textTheme;
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -1095,37 +1324,49 @@ class _HomeState extends State<Home> {
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
         boxShadow: [BoxShadow(color: c.withAlpha(90), blurRadius: 16, offset: const Offset(0, 6))],
       ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-          child: Row(children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(color: Colors.white.withAlpha(150), borderRadius: BorderRadius.circular(18)),
-              child: Icon(tabIcons[tab], color: ink, size: 28),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                Text(title, style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: ink, height: 1.1)),
-                const SizedBox(height: 2),
-                Text(
-                  '${now.day} ${aylar[now.month - 1]} ${now.year}',
-                  style: tt.bodyMedium?.copyWith(color: ink.withAlpha(170), fontWeight: FontWeight.w600),
-                ),
-              ]),
-            ),
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(color: Colors.white.withAlpha(110), shape: BoxShape.circle),
-              child: const Icon(Icons.vpn_key_rounded, color: ink, size: 20),
-            ),
-          ]),
+      child: Stack(children: [
+        Positioned(
+          right: -34,
+          top: -34,
+          child: Container(width: 130, height: 130, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withAlpha(55))),
         ),
-      ),
+        Positioned(
+          left: -26,
+          bottom: -46,
+          child: Container(width: 110, height: 110, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withAlpha(40))),
+        ),
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            child: Row(children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(color: Colors.white.withAlpha(150), borderRadius: BorderRadius.circular(18)),
+                child: Icon(tabIcons[tab], color: ink, size: 28),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text(title, style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.w800, color: ink, height: 1.1)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${now.day} ${aylar[now.month - 1]} ${now.year}',
+                    style: tt.bodyMedium?.copyWith(color: ink.withAlpha(170), fontWeight: FontWeight.w600),
+                  ),
+                ]),
+              ),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: Colors.white.withAlpha(110), shape: BoxShape.circle),
+                child: const Icon(Icons.vpn_key_rounded, color: ink, size: 20),
+              ),
+            ]),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -1133,12 +1374,21 @@ class _HomeState extends State<Home> {
   Widget build(BuildContext context) {
     const titles = ['Stok', 'Alış', 'Satış', 'Gider', 'Rapor', 'Yedek'];
     final List<Widget Function()> pages = [stokPage, () => tradePage(false), () => tradePage(true), giderPage, raporPage, yedekPage];
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
+      backgroundColor: dark ? null : Color.lerp(const Color(0xFFFBFAFF), tabColors[tab], 0.14),
       body: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
         child: Column(children: [
           header(titles[tab]),
-          Expanded(child: ready ? pages[tab]() : const Center(child: CircularProgressIndicator())),
+          Expanded(
+            child: ready
+                ? AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: KeyedSubtree(key: ValueKey(tab), child: pages[tab]()),
+                  )
+                : const Center(child: CircularProgressIndicator()),
+          ),
         ]),
       ),
       floatingActionButton: ready ? fab() : null,
