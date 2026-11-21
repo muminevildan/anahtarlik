@@ -27,11 +27,14 @@ jobs:
 
       - run: flutter create --platforms=web --project-name anahtarlik .
 
+      # Uygulamanın adı (ana ekranda ve sekmede görünür)
       - run: sed -i 's/anahtarlik/KeyLog/g' web/index.html
-      - run: sed -i 's/"name": "anahtarlik"/"name": "KeyLog"/; s/"short_name": "anahtarlik"/"short_name": "KeyLog"/' web/manifest.json
+      - run: |
+          sed -i 's/"name": "anahtarlik"/"name": "KeyLog"/; s/"short_name": "anahtarlik"/"short_name": "KeyLog"/' web/manifest.json
 
       - run: flutter pub get
 
+      # Logoyu (icon.png) web ve ana ekran ikonlarına yerleştirir
       - run: dart run flutter_launcher_icons
 
       - run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
